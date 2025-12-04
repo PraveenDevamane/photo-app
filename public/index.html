@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Management App - MongoDB Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📸 Photo Management App</h1>
+            <p class="subtitle">MongoDB CRUD Operations Demo - Upload, Tag, Organize Images</p>
+        </header>
+
+        <!-- Statistics Panel -->
+        <section class="stats-panel" id="statsPanel">
+            <div class="stat-card">
+                <span class="stat-number" id="totalImages">0</span>
+                <span class="stat-label">Total Images</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="organizedImages">0</span>
+                <span class="stat-label">Organized</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="peopleImages">0</span>
+                <span class="stat-label">People</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="petsImages">0</span>
+                <span class="stat-label">Pets</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="natureImages">0</span>
+                <span class="stat-label">Nature</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="vehiclesImages">0</span>
+                <span class="stat-label">Vehicles</span>
+            </div>
+        </section>
+
+        <!-- Tab Navigation -->
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="upload">📤 Upload</button>
+            <button class="tab-btn" data-tab="gallery">🖼️ Gallery</button>
+            <button class="tab-btn" data-tab="organize">📁 Organize</button>
+            <button class="tab-btn" data-tab="database">🗄️ Database</button>
+        </nav>
+
+        <!-- Upload Section -->
+        <section class="tab-content active" id="upload">
+            <div class="upload-card">
+                <h2>Upload New Image</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="imageInput">Select Image</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="imageInput" name="image" accept="image/*" required>
+                            <div class="file-preview" id="filePreview">
+                                <span>📷 Click or drag image here</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="tagsInput">Custom Tags (comma-separated)</label>
+                        <input type="text" id="tagsInput" name="tags" placeholder="e.g., vacation, family, summer">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="embeddingInput">Embedding Vector (JSON array, optional)</label>
+                        <textarea id="embeddingInput" name="embedding" placeholder="[0.1, 0.2, 0.3, ...] - Leave empty for auto-generation"></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <span>Upload Image</span>
+                    </button>
+                </form>
+                
+                <div class="upload-result" id="uploadResult"></div>
+            </div>
+        </section>
+
+        <!-- Gallery Section -->
+        <section class="tab-content" id="gallery">
+            <div class="gallery-controls">
+                <h2>Image Gallery</h2>
+                <div class="search-container">
+                    <input type="text" id="searchInput" placeholder="🔍 Search by tags (e.g., pet, nature, vacation)">
+                    <button class="btn btn-primary" onclick="searchPhotos()">Search</button>
+                    <button class="btn btn-secondary" onclick="clearSearch()">Clear</button>
+                </div>
+                <div class="filter-controls">
+                    <select id="filterSelect">
+                        <option value="">All Images</option>
+                        <option value="people">👤 People</option>
+                        <option value="pets">🐾 Pets</option>
+                        <option value="nature">🌿 Nature</option>
+                        <option value="vehicles">🚗 Vehicles</option>
+                        <option value="organized">📁 Organized</option>
+                        <option value="unorganized">📋 Unorganized</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="loadImages()">🔄 Refresh</button>
+                </div>
+            </div>
+            
+            <div class="gallery-grid" id="galleryGrid">
+                <!-- Images will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Organize Section -->
+        <section class="tab-content" id="organize">
+            <div class="organize-panel">
+                <h2>Organize Images by Tags</h2>
+                <p>Images will be organized into folders based on their auto-detected tags:</p>
+                
+                <div class="folder-structure">
+                    <div class="folder-item">📁 <strong>people/person_XXXX/</strong> - Images grouped by person ID</div>
+                    <div class="folder-item">📁 <strong>pets/</strong> - Images with pets detected</div>
+                    <div class="folder-item">📁 <strong>nature/</strong> - Nature and landscape images</div>
+                    <div class="folder-item">📁 <strong>vehicles/</strong> - Car, bike, vehicle images</div>
+                    <div class="folder-item">📁 <strong>tags/</strong> - Custom tagged images</div>
+                    <div class="folder-item">📁 <strong>uncategorized/</strong> - Other images</div>
+                </div>
+                
+                <div class="organize-actions">
+                    <button class="btn btn-warning btn-large" onclick="reprocessAllImages()">
+                        🔄 Re-process Tags (Fix Tagging)
+                    </button>
+                    <button class="btn btn-primary btn-large" onclick="reorganizeAllImages()">
+                        📂 Reorganize All Images (Reset & Organize)
+                    </button>
+                    <button class="btn btn-secondary btn-large" onclick="organizeAllImages()">
+                        📁 Organize Unorganized Only
+                    </button>
+                </div>
+                
+                <div class="organize-result" id="organizeResult"></div>
+            </div>
+        </section>
+
+        <!-- Database Section -->
+        <section class="tab-content" id="database">
+            <div class="database-panel">
+                <h2>View Database Data</h2>
+                
+                <!-- Collections Overview -->
+                <div class="collections-section">
+                    <h3>📚 Category Collections</h3>
+                    <p>Data is stored in separate collections for each category:</p>
+                    <div class="collection-tabs">
+                        <button class="collection-tab active" data-collection="all">All Collections</button>
+                        <button class="collection-tab" data-collection="persons">👤 Persons</button>
+                        <button class="collection-tab" data-collection="pets">🐾 Pets</button>
+                        <button class="collection-tab" data-collection="nature">🌿 Nature</button>
+                        <button class="collection-tab" data-collection="vehicles">🚗 Vehicles</button>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadCollections()">🔄 Load Collections Data</button>
+                    <div class="collections-display" id="collectionsDisplay">
+                        <p class="placeholder-text">Click "Load Collections Data" to view stored metadata...</p>
+                    </div>
+                </div>
+                
+                <div class="db-methods">
+                    <div class="method-card">
+                        <h3>🖥️ Method 1: MongoDB Compass (GUI)</h3>
+                        <ol>
+                            <li>Download <a href="https://www.mongodb.com/products/compass" target="_blank">MongoDB Compass</a></li>
+                            <li>Connect using: <code>mongodb://localhost:27017</code></li>
+                            <li>Navigate to database: <code>photo_app</code></li>
+                            <li>View collections: <code>images</code>, <code>persons</code>, <code>pets</code>, <code>natures</code>, <code>vehicles</code></li>
+                        </ol>
+                    </div>
+                    
+                    <div class="method-card">
+                        <h3>💻 Method 2: MongoDB Shell</h3>
+                        <pre><code># Start MongoDB Shell
+mongosh
+
+# Use photo_app database
+use photo_app
+
+# View all collections
+show collections
+
+# View persons collection
+db.persons.find().pretty()
+
+# View pets collection
+db.pets.find().pretty()
+
+# View nature collection
+db.natures.find().pretty()
+
+# View vehicles collection
+db.vehicles.find().pretty()
+
+# View all images
+db.images.find().pretty()</code></pre>
+                    </div>
+                    
+                    <div class="method-card">
+                        <h3>🌐 Method 3: API Endpoints</h3>
+                        <pre><code># Get all collections summary
+GET http://localhost:3000/api/collections
+
+# Get persons collection
+GET http://localhost:3000/api/collections/persons
+
+# Get pets collection
+GET http://localhost:3000/api/collections/pets
+
+# Get nature collection
+GET http://localhost:3000/api/collections/nature
+
+# Get vehicles collection
+GET http://localhost:3000/api/collections/vehicles
+
+# Get all images
+GET http://localhost:3000/api/images</code></pre>
+                    </div>
+                </div>
+
+                <div class="raw-data-section">
+                    <h3>📊 Raw Images Data</h3>
+                    <button class="btn btn-secondary" onclick="loadRawData()">Load Raw Data from MongoDB</button>
+                    <pre class="raw-data" id="rawDataDisplay">Click button to load data...</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Image Detail Modal -->
+        <div class="modal" id="imageModal">
+            <div class="modal-content">
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+                <div class="modal-body">
+                    <div class="modal-image">
+                        <img id="modalImage" src="" alt="Preview">
+                    </div>
+                    <div class="modal-details">
+                        <h3 id="modalTitle">Image Details</h3>
+                        
+                        <div class="detail-group">
+                            <label>ID:</label>
+                            <span id="modalId"></span>
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Filename:</label>
+                            <span id="modalFilename"></span>
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Upload Date:</label>
+                            <span id="modalDate"></span>
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Auto Tags:</label>
+                            <div id="modalAutoTags" class="tags-display"></div>
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Custom Tags:</label>
+                            <input type="text" id="modalTagsInput" placeholder="Enter tags...">
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Set Category (Quick Tag):</label>
+                            <div class="quick-tags">
+                                <button class="btn btn-sm" onclick="setCategory('person')">👤 Person</button>
+                                <button class="btn btn-sm" onclick="setCategory('pet')">🐾 Pet</button>
+                                <button class="btn btn-sm" onclick="setCategory('nature')">🌿 Nature</button>
+                                <button class="btn btn-sm" onclick="setCategory('vehicle')">🚗 Vehicle</button>
+                            </div>
+                        </div>
+                        
+                        <div class="detail-group">
+                            <label>Embedding Preview:</label>
+                            <pre id="modalEmbedding" class="embedding-preview"></pre>
+                        </div>
+                        
+                        <div class="modal-actions">
+                            <button class="btn btn-primary" onclick="updateImage()">💾 Update Tags</button>
+                            <button class="btn btn-success" onclick="organizeImage()">📁 Organize</button>
+                            <button class="btn btn-danger" onclick="deleteImage()">🗑️ Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
