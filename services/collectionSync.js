@@ -2,6 +2,7 @@ const Person = require('../models/Person');
 const Pet = require('../models/Pet');
 const Nature = require('../models/Nature');
 const Vehicle = require('../models/Vehicle');
+const Uncategorized = require('../models/Uncategorized');
 
 class CollectionSync {
   static async addImageToCollections(imageData) {
@@ -14,7 +15,12 @@ class CollectionSync {
       if (autoTags.person_id) {
         await Person.findOneAndUpdate(
           { personId: autoTags.person_id },
-          { $push: { images: imageData }, $inc: { 'metadata.imageCount': 1 }, $set: { 'metadata.lastSeen': new Date(), sampleImageUrl: imageUrl }, $setOnInsert: { personId: autoTags.person_id, 'metadata.firstSeen': new Date(), createdAt: new Date() } },
+          {
+            $push: { images: imageData },
+            $inc: { 'metadata.imageCount': 1 },
+            $set: { 'metadata.lastSeen': new Date(), sampleImageUrl: imageUrl },
+            $setOnInsert: { personId: autoTags.person_id, 'metadata.firstSeen': new Date(), createdAt: new Date() }
+          },
           { upsert: true, new: true }
         );
         results.addedTo.push('Person');
@@ -25,7 +31,12 @@ class CollectionSync {
       if (autoTags.pets) {
         await Pet.findOneAndUpdate(
           { category: 'pet' },
-          { $push: { images: imageData }, $inc: { 'metadata.imageCount': 1 }, $set: { updatedAt: new Date(), sampleImageUrl: imageUrl }, $setOnInsert: { category: 'pet', createdAt: new Date() } },
+          {
+            $push: { images: imageData },
+            $inc: { 'metadata.imageCount': 1 },
+            $set: { updatedAt: new Date(), sampleImageUrl: imageUrl },
+            $setOnInsert: { category: 'pet', createdAt: new Date() }
+          },
           { upsert: true, new: true }
         );
         results.addedTo.push('Pet');
@@ -36,7 +47,12 @@ class CollectionSync {
       if (autoTags.nature) {
         await Nature.findOneAndUpdate(
           { category: 'nature' },
-          { $push: { images: imageData }, $inc: { 'metadata.imageCount': 1 }, $set: { updatedAt: new Date(), sampleImageUrl: imageUrl }, $setOnInsert: { category: 'nature', createdAt: new Date() } },
+          {
+            $push: { images: imageData },
+            $inc: { 'metadata.imageCount': 1 },
+            $set: { updatedAt: new Date(), sampleImageUrl: imageUrl },
+            $setOnInsert: { category: 'nature', createdAt: new Date() }
+          },
           { upsert: true, new: true }
         );
         results.addedTo.push('Nature');
@@ -47,7 +63,12 @@ class CollectionSync {
       if (autoTags.vehicle) {
         await Vehicle.findOneAndUpdate(
           { category: 'vehicle' },
-          { $push: { images: imageData }, $inc: { 'metadata.imageCount': 1 }, $set: { updatedAt: new Date(), sampleImageUrl: imageUrl }, $setOnInsert: { category: 'vehicle', createdAt: new Date() } },
+          {
+            $push: { images: imageData },
+            $inc: { 'metadata.imageCount': 1 },
+            $set: { updatedAt: new Date(), sampleImageUrl: imageUrl },
+            $setOnInsert: { category: 'vehicle', createdAt: new Date() }
+          },
           { upsert: true, new: true }
         );
         results.addedTo.push('Vehicle');
@@ -56,13 +77,18 @@ class CollectionSync {
       }
       
       if (!addedToAny) {
-        await Nature.findOneAndUpdate(
+        await Uncategorized.findOneAndUpdate(
           { category: 'uncategorized' },
-          { $push: { images: imageData }, $inc: { 'metadata.imageCount': 1 }, $set: { updatedAt: new Date(), sampleImageUrl: imageUrl }, $setOnInsert: { category: 'uncategorized', createdAt: new Date() } },
+          {
+            $push: { images: imageData },
+            $inc: { 'metadata.imageCount': 1 },
+            $set: { updatedAt: new Date(), sampleImageUrl: imageUrl },
+            $setOnInsert: { category: 'uncategorized', createdAt: new Date() }
+          },
           { upsert: true, new: true }
         );
-        results.addedTo.push('Nature (uncategorized)');
-        console.log('Added to Nature as uncategorized');
+        results.addedTo.push('Uncategorized');
+        console.log('Added to Uncategorized collection');
       }
       
       return results;
@@ -79,10 +105,14 @@ class CollectionSync {
       await Pet.updateMany({}, { $pull: { images: { filename } }, $inc: { 'metadata.imageCount': -1 } });
       await Nature.updateMany({}, { $pull: { images: { filename } }, $inc: { 'metadata.imageCount': -1 } });
       await Vehicle.updateMany({}, { $pull: { images: { filename } }, $inc: { 'metadata.imageCount': -1 } });
+      await Uncategorized.updateMany({}, { $pull: { images: { filename } }, $inc: { 'metadata.imageCount': -1 } });
+      
       await Person.deleteMany({ 'metadata.imageCount': { $lte: 0 } });
       await Pet.deleteMany({ 'metadata.imageCount': { $lte: 0 } });
       await Nature.deleteMany({ 'metadata.imageCount': { $lte: 0 } });
       await Vehicle.deleteMany({ 'metadata.imageCount': { $lte: 0 } });
+      await Uncategorized.deleteMany({ 'metadata.imageCount': { $lte: 0 } });
+      
       console.log('Removed image from all collections:', filename);
       return { success: true };
     } catch (error) {
@@ -135,6 +165,16 @@ class CollectionSync {
       }
     }
 
+    const uncategorized = await Uncategorized.find();
+    for (const uncat of uncategorized) {
+      for (const image of uncat.images || []) {
+        if (!seenFilenames.has(image.filename)) {
+          seenFilenames.add(image.filename);
+          allImages.push({ ...image.toObject(), categories: ['uncategorized'] });
+        }
+      }
+    }
+
     return allImages;
   }
 
@@ -163,6 +203,12 @@ class CollectionSync {
       if (image) return { ...image.toObject(), collection: 'Vehicle' };
     }
 
+    const uncategorized = await Uncategorized.findOne({ 'images.filename': filename });
+    if (uncategorized) {
+      const image = uncategorized.images.find(i => i.filename === filename);
+      if (image) return { ...image.toObject(), collection: 'Uncategorized' };
+    }
+
     return null;
   }
 
@@ -171,6 +217,7 @@ class CollectionSync {
     await Pet.updateMany({ 'images.filename': filename }, { $set: { 'images.$.organized': organized, 'images.$.organizedPaths': organizedPaths } });
     await Nature.updateMany({ 'images.filename': filename }, { $set: { 'images.$.organized': organized, 'images.$.organizedPaths': organizedPaths } });
     await Vehicle.updateMany({ 'images.filename': filename }, { $set: { 'images.$.organized': organized, 'images.$.organizedPaths': organizedPaths } });
+    await Uncategorized.updateMany({ 'images.filename': filename }, { $set: { 'images.$.organized': organized, 'images.$.organizedPaths': organizedPaths } });
   }
 
   static async getCollectionsSummary() {
@@ -178,12 +225,14 @@ class CollectionSync {
     const pets = await Pet.find();
     const nature = await Nature.find();
     const vehicles = await Vehicle.find();
+    const uncategorized = await Uncategorized.find();
 
     return {
       persons: persons.map(p => ({ personId: p.personId, images: p.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: p.metadata })),
       pets: pets.map(p => ({ category: p.category, images: p.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: p.metadata })),
       nature: nature.map(n => ({ category: n.category, images: n.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: n.metadata })),
-      vehicles: vehicles.map(v => ({ category: v.category, images: v.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: v.metadata }))
+      vehicles: vehicles.map(v => ({ category: v.category, images: v.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: v.metadata })),
+      uncategorized: uncategorized.map(u => ({ category: u.category, images: u.images.map(i => ({ filename: i.filename, originalName: i.originalName, uploadedAt: i.uploadedAt, organized: i.organized })), metadata: u.metadata }))
     };
   }
 
@@ -192,138 +241,35 @@ class CollectionSync {
     await Pet.deleteMany({});
     await Nature.deleteMany({});
     await Vehicle.deleteMany({});
-    console.log('Cleared all category collections');
+    await Uncategorized.deleteMany({});
+    console.log('Cleared all collections');
   }
 
-  // Optimized search - queries MongoDB directly with $regex
   static async searchImagesByTags(searchTerms) {
     const results = [];
     const seenFilenames = new Set();
 
-    // Category keyword mapping for smart search
-    const categoryKeywords = {
-      person: ['person', 'people', 'human', 'face', 'portrait', 'selfie', 'family'],
-      pet: ['pet', 'dog', 'cat', 'animal', 'puppy', 'kitten'],
-      nature: ['nature', 'landscape', 'outdoor', 'flower', 'tree', 'mountain', 'beach', 'sunset', 'lake', 'river', 'forest'],
-      vehicle: ['vehicle', 'car', 'bike', 'truck', 'motorcycle', 'bus', 'train', 'mercedes', 'bmw', 'toyota']
-    };
-
-    // Check if search terms match category keywords
-    const matchesCategory = (category) => {
-      return searchTerms.some(term => 
-        categoryKeywords[category].some(keyword => 
-          keyword.includes(term.toLowerCase()) || term.toLowerCase().includes(keyword)
-        )
-      );
-    };
-
-    // Helper function to check if an image matches search terms
-    const imageMatchesSearch = (image, categoryMatch) => {
-      // If category keyword matches, include all images from that collection
-      if (categoryMatch) return true;
+    // Always search ALL images by their tags
+    const allImages = await this.getAllImages();
+    
+    for (const image of allImages) {
+      const imageTags = Array.isArray(image.tags) ? image.tags : [];
       
-      // Check custom tags
-      const tags = Array.isArray(image.tags) ? image.tags : [];
       for (const term of searchTerms) {
         const regex = new RegExp(term, 'i');
-        if (tags.some(t => regex.test(t))) return true;
-        if (regex.test(image.originalName || '')) return true;
-        if (regex.test(image.filename || '')) return true;
         
-        // Check autoTags object
-        if (image.autoTags) {
-          if (typeof image.autoTags === 'object') {
-            // Check if autoTags has matching properties
-            if (image.autoTags.nature && term.toLowerCase().includes('nature')) return true;
-            if (image.autoTags.pets && (term.toLowerCase().includes('pet') || term.toLowerCase().includes('animal'))) return true;
-            if (image.autoTags.vehicle && term.toLowerCase().includes('vehicle')) return true;
-            if (image.autoTags.person_id && term.toLowerCase().includes('person')) return true;
-            // Check objects array in autoTags
-            if (Array.isArray(image.autoTags.objects)) {
-              if (image.autoTags.objects.some(obj => regex.test(obj))) return true;
-            }
+        // Search in tags, originalName, filename, and categories
+        const matchesTags = imageTags.some(t => regex.test(t));
+        const matchesName = regex.test(image.originalName || '');
+        const matchesFilename = regex.test(image.filename || '');
+        const matchesCategory = (image.categories || []).some(c => regex.test(c));
+        
+        if (matchesTags || matchesName || matchesFilename || matchesCategory) {
+          if (!seenFilenames.has(image.filename)) {
+            seenFilenames.add(image.filename);
+            results.push(image);
           }
-        }
-      }
-      return false;
-    };
-
-    // Search Person collection
-    if (matchesCategory('person')) {
-      try {
-        const persons = await Person.find();
-        for (const person of persons) {
-          for (const image of person.images || []) {
-            if (!seenFilenames.has(image.filename)) {
-              seenFilenames.add(image.filename);
-              results.push({ ...image.toObject(), personId: person.personId, categories: ['person'] });
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error searching Person collection:', err.message);
-      }
-    }
-
-    // Search Pet collection
-    if (matchesCategory('pet')) {
-      try {
-        const pets = await Pet.find();
-        for (const pet of pets) {
-          for (const image of pet.images || []) {
-            if (!seenFilenames.has(image.filename)) {
-              seenFilenames.add(image.filename);
-              results.push({ ...image.toObject(), categories: ['pet'] });
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error searching Pet collection:', err.message);
-      }
-    }
-
-    // Search Nature collection
-    if (matchesCategory('nature')) {
-      try {
-        const nature = await Nature.find();
-        for (const nat of nature) {
-          for (const image of nat.images || []) {
-            if (!seenFilenames.has(image.filename)) {
-              seenFilenames.add(image.filename);
-              results.push({ ...image.toObject(), categories: [nat.category === 'uncategorized' ? 'uncategorized' : 'nature'] });
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error searching Nature collection:', err.message);
-      }
-    }
-
-    // Search Vehicle collection
-    if (matchesCategory('vehicle')) {
-      try {
-        const vehicles = await Vehicle.find();
-        for (const vehicle of vehicles) {
-          for (const image of vehicle.images || []) {
-            if (!seenFilenames.has(image.filename)) {
-              seenFilenames.add(image.filename);
-              results.push({ ...image.toObject(), categories: ['vehicle'] });
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error searching Vehicle collection:', err.message);
-      }
-    }
-
-    // If no category matched, do a general search across all collections
-    if (!matchesCategory('person') && !matchesCategory('pet') && !matchesCategory('nature') && !matchesCategory('vehicle')) {
-      // Search all collections for filename/tag matches
-      const allImages = await this.getAllImages();
-      for (const image of allImages) {
-        if (!seenFilenames.has(image.filename) && imageMatchesSearch(image, false)) {
-          seenFilenames.add(image.filename);
-          results.push(image);
+          break;
         }
       }
     }

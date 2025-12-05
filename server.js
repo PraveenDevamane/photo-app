@@ -19,13 +19,30 @@ const ImageWithValidation = require('./models/ImageWithValidation');
 const ImageProcessor = require('./services/imageProcessor');
 const CollectionSync = require('./services/collectionSync');
 
-// ML Tagger - disabled due to version compatibility issues
-// const MLImageTagger = require('./services/mlImageTagger');
-let mlModelAvailable = false;
+// CLIP-based Image Tagger (Primary method)
+const clipTagger = require('./services/clipTagger');
 
-console.log('ℹ️  Using filename-based image classification');
-console.log('   Tip: Name your files descriptively (e.g., "my_dog_max.jpg", "beach_sunset.jpg")');
-console.log('   for better auto-tagging results.');
+// Flag to track if CLIP is available
+let clipModelAvailable = false;
+
+// Initialize CLIP model on startup
+(async () => {
+  try {
+    clipModelAvailable = await clipTagger.initialize();
+    if (clipModelAvailable) {
+      console.log('🎯 CLIP-based image classification enabled');
+    } else {
+      console.log('⚠️  CLIP not available, using filename-based classification');
+    }
+  } catch (error) {
+    console.log('⚠️  CLIP initialization failed:', error.message);
+    console.log('   Falling back to filename-based classification');
+  }
+})();
+
+console.log('ℹ️  Image Auto-Tagging Agent initialized');
+console.log('   Primary: CLIP embeddings (if available)');
+console.log('   Secondary: Filename-based tagging');
 
 // Helper function to convert autoTags object to array for display
 function autoTagsToArray(autoTags) {
@@ -43,57 +60,6 @@ function autoTagsToArray(autoTags) {
     });
   }
   return tags.length > 0 ? tags : ['uncategorized'];
-}
-
-// Helper function to convert ML analysis result to autoTags format
-function mlResultToAutoTags(mlResult) {
-  const autoTags = {
-    person_id: null,
-    nature: false,
-    pets: false,
-    vehicle: false,
-    objects: []
-  };
-  
-  if (!mlResult || !mlResult.categories) return autoTags;
-  
-  const { categories } = mlResult;
-  
-  if (categories.person && categories.person.detected) {
-    autoTags.person_id = `person_${String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0')}`;
-    autoTags.objects.push('portrait');
-  }
-  
-  if (categories.pet && categories.pet.detected) {
-    autoTags.pets = true;
-    autoTags.objects.push(categories.pet.petType || 'animal');
-  }
-  
-  if (categories.nature && categories.nature.detected) {
-    autoTags.nature = true;
-    autoTags.objects.push(categories.nature.sceneType || 'outdoor');
-  }
-  
-  if (categories.vehicle && categories.vehicle.detected) {
-    autoTags.vehicle = true;
-    autoTags.objects.push(categories.vehicle.vehicleType || 'vehicle');
-  }
-  
-  // Add top predictions to objects
-  if (mlResult.predictions && mlResult.predictions.length > 0) {
-    mlResult.predictions.slice(0, 3).forEach(pred => {
-      const label = pred.className.split(',')[0].trim().toLowerCase();
-      if (!autoTags.objects.includes(label)) {
-        autoTags.objects.push(label);
-      }
-    });
-  }
-  
-  if (autoTags.objects.length === 0) {
-    autoTags.objects.push('uncategorized');
-  }
-  
-  return autoTags;
 }
 
 const app = express();
@@ -203,7 +169,27 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       }
     } else {
       // No user category - use auto-detection
-      autoTags = ImageProcessor.analyzeEmbedding(embedding, req.file.originalname);
+      // PRIMARY: Try CLIP-based tagging first
+      if (clipModelAvailable) {
+        try {
+          console.log('🎯 Using CLIP for image analysis...');
+          const clipResult = await clipTagger.analyzeImage(req.file.path, req.file.originalname);
+          autoTags = clipResult.autoTags;
+          
+          // Add CLIP tags to custom tags for display
+          if (clipResult.combinedTags && clipResult.combinedTags.length > 0) {
+            customTags = [...new Set([...customTags, ...clipResult.combinedTags])];
+          }
+          
+          console.log(`  ✅ CLIP analysis complete (method: ${clipResult.method})`);
+        } catch (clipError) {
+          console.log('  ⚠️ CLIP failed, falling back to filename analysis');
+          autoTags = ImageProcessor.analyzeEmbedding(embedding, req.file.originalname);
+        }
+      } else {
+        // SECONDARY: Fall back to filename-based tagging
+        autoTags = ImageProcessor.analyzeEmbedding(embedding, req.file.originalname);
+      }
     }
 
     // Create full image data object
@@ -331,6 +317,111 @@ app.delete('/api/images/:filename', async (req, res) => {
   }
 });
 
+// Update image tags - TRIGGERS re-classification and moves to new collection(s)
+app.put('/api/images/:filename/tags', async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const { tags } = req.body; // New custom tags from user
+    
+    if (!tags || !Array.isArray(tags)) {
+      return res.status(400).json({ error: 'Tags must be an array of strings' });
+    }
+    
+    console.log(`🔄 Updating tags for: ${filename}`);
+    console.log(`   New tags: ${tags.join(', ')}`);
+    
+    // 1. Find existing image data
+    const existingImage = await CollectionSync.findImageByFilename(filename);
+    if (!existingImage) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    
+    // 2. Remove from ALL current collections (TRIGGER: pre-update cleanup)
+    console.log('   📤 Removing from current collections...');
+    await CollectionSync.removeImageFromCollections(filename);
+    
+    // 3. Re-classify based on NEW tags (TRIGGER: re-classification)
+    const customTags = tags.map(tag => tag.trim().toLowerCase()).filter(tag => tag);
+    
+    // Generate new autoTags based on custom tags AND filename
+    let autoTags = {
+      person_id: null,
+      nature: false,
+      pets: false,
+      vehicle: false,
+      objects: []
+    };
+    
+    // Check custom tags for category keywords
+    const categoryKeywords = {
+      person: ['person', 'people', 'family', 'portrait', 'selfie', 'face', 'man', 'woman', 'child', 'kid', 'baby'],
+      pet: ['pet', 'dog', 'cat', 'puppy', 'kitten', 'animal', 'bird', 'fish', 'rabbit', 'hamster'],
+      nature: ['nature', 'landscape', 'flower', 'tree', 'beach', 'mountain', 'sunset', 'sunrise', 'forest', 'ocean', 'sky', 'garden', 'park'],
+      vehicle: ['vehicle', 'car', 'bike', 'truck', 'motorcycle', 'bus', 'train', 'plane', 'boat', 'ship']
+    };
+    
+    // Analyze custom tags for categories
+    for (const tag of customTags) {
+      if (categoryKeywords.person.some(k => tag.includes(k))) {
+        autoTags.person_id = existingImage.autoTags?.person_id || ImageProcessor.findOrCreatePersonId(existingImage.embedding || [], filename);
+        autoTags.objects.push('portrait');
+      }
+      if (categoryKeywords.pet.some(k => tag.includes(k))) {
+        autoTags.pets = true;
+        autoTags.objects.push('animal');
+      }
+      if (categoryKeywords.nature.some(k => tag.includes(k))) {
+        autoTags.nature = true;
+        autoTags.objects.push('outdoor');
+      }
+      if (categoryKeywords.vehicle.some(k => tag.includes(k))) {
+        autoTags.vehicle = true;
+        autoTags.objects.push('vehicle');
+      }
+    }
+    
+    // If no category detected from custom tags, fall back to filename analysis
+    if (!autoTags.person_id && !autoTags.pets && !autoTags.nature && !autoTags.vehicle) {
+      console.log('   🔍 No category in tags, analyzing filename...');
+      autoTags = ImageProcessor.analyzeFilename(existingImage.originalName || filename, existingImage.embedding || []);
+    }
+    
+    // 4. Prepare updated image data
+    const updatedImageData = {
+      filename: existingImage.filename,
+      originalName: existingImage.originalName,
+      filepath: existingImage.filepath,
+      mimetype: existingImage.mimetype,
+      size: existingImage.size,
+      embedding: existingImage.embedding || [],
+      tags: customTags, // NEW custom tags
+      autoTags: autoTags, // NEW auto-classification
+      organized: false, // Reset organized status
+      organizedPaths: [],
+      uploadedAt: existingImage.uploadedAt || new Date()
+    };
+    
+    // 5. Add to NEW collection(s) based on updated classification (TRIGGER: post-update insert)
+    console.log('   📥 Adding to new collection(s)...');
+    const results = await CollectionSync.addImageToCollections(updatedImageData);
+    
+    console.log(`   ✅ Moved to: ${results.addedTo.join(', ')}`);
+    
+    res.json({
+      message: 'Tags updated and image re-classified successfully',
+      filename: filename,
+      oldCollection: existingImage.collection,
+      newCollections: results.addedTo,
+      tags: customTags,
+      autoTags: autoTagsToArray(autoTags)
+    });
+    
+  } catch (error) {
+    console.error('Update tags error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Organize images
 app.post('/api/organize', async (req, res) => {
   try {
@@ -401,16 +492,16 @@ app.post('/api/reprocess', async (req, res) => {
       const filepath = path.join(uploadsDir, filename);
       const embedding = ImageProcessor.generateSimpleEmbedding(filename);
       
-      // Try ML-based classification first
+      // Try CLIP-based classification first
       let autoTags;
-      if (mlModelAvailable) {
+      if (clipModelAvailable) {
         try {
-          console.log(`  🤖 ML classifying: ${filename}`);
-          const mlResult = await MLImageTagger.analyzeImage(filepath);
-          autoTags = mlResultToAutoTags(mlResult);
-          console.log(`  ✅ ML detected: ${autoTagsToArray(autoTags).join(', ')}`);
-        } catch (mlError) {
-          console.log(`  ⚠️ ML failed for ${filename}, using fallback`);
+          console.log(`  🎯 CLIP classifying: ${filename}`);
+          const clipResult = await clipTagger.analyzeImage(filepath, filename);
+          autoTags = clipResult.autoTags;
+          console.log(`  ✅ CLIP detected: ${autoTagsToArray(autoTags).join(', ')}`);
+        } catch (clipError) {
+          console.log(`  ⚠️ CLIP failed for ${filename}, using fallback`);
           autoTags = ImageProcessor.analyzeEmbedding(embedding, filename);
         }
       } else {
@@ -440,8 +531,8 @@ app.post('/api/reprocess', async (req, res) => {
     }
     
     res.json({
-      message: `Re-processed ${results.length} image(s)${mlModelAvailable ? ' with ML' : ''}`,
-      mlEnabled: mlModelAvailable,
+      message: `Re-processed ${results.length} image(s)${clipModelAvailable ? ' with CLIP' : ''}`,
+      clipEnabled: clipModelAvailable,
       results
     });
   } catch (error) {
@@ -469,16 +560,16 @@ app.post('/api/reorganize', async (req, res) => {
       const filepath = path.join(uploadsDir, filename);
       const embedding = ImageProcessor.generateSimpleEmbedding(filename);
       
-      // Try ML-based classification first
+      // Try CLIP-based classification first
       let autoTags;
-      if (mlModelAvailable) {
+      if (clipModelAvailable) {
         try {
-          console.log(`  🤖 ML classifying: ${filename}`);
-          const mlResult = await MLImageTagger.analyzeImage(filepath);
-          autoTags = mlResultToAutoTags(mlResult);
-          console.log(`  ✅ ML detected: ${autoTagsToArray(autoTags).join(', ')}`);
-        } catch (mlError) {
-          console.log(`  ⚠️ ML failed for ${filename}, using fallback`);
+          console.log(`  🎯 CLIP classifying: ${filename}`);
+          const clipResult = await clipTagger.analyzeImage(filepath, filename);
+          autoTags = clipResult.autoTags;
+          console.log(`  ✅ CLIP detected: ${autoTagsToArray(autoTags).join(', ')}`);
+        } catch (clipError) {
+          console.log(`  ⚠️ CLIP failed for ${filename}, using fallback`);
           autoTags = ImageProcessor.analyzeEmbedding(embedding, filename);
         }
       } else {
@@ -520,8 +611,8 @@ app.post('/api/reorganize', async (req, res) => {
     }
     
     res.json({
-      message: `Reorganized ${results.length} image(s)${mlModelAvailable ? ' with ML' : ''}`,
-      mlEnabled: mlModelAvailable,
+      message: `Reorganized ${results.length} image(s)${clipModelAvailable ? ' with CLIP' : ''}`,
+      clipEnabled: clipModelAvailable,
       trackedPersons: ImageProcessor.getTrackedPersons(),
       results
     });
@@ -568,6 +659,51 @@ app.get('/api/search', async (req, res) => {
     });
   } catch (error) {
     console.error('Search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get CLIP tagger status
+app.get('/api/clip/status', async (req, res) => {
+  try {
+    const status = clipTagger.getStatus();
+    res.json({
+      ...status,
+      available: clipModelAvailable,
+      message: clipModelAvailable 
+        ? 'CLIP model is active - using AI-powered image tagging'
+        : 'CLIP not available - using filename-based tagging'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Analyze image with CLIP (manual trigger)
+app.post('/api/clip/analyze/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const imagePath = path.join(uploadsDir, filename);
+    
+    if (!fs.existsSync(imagePath)) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    
+    if (!clipModelAvailable) {
+      return res.status(503).json({ 
+        error: 'CLIP model not available',
+        fallback: 'Using filename-based tagging instead'
+      });
+    }
+    
+    const result = await clipTagger.analyzeImage(imagePath, filename);
+    
+    res.json({
+      filename,
+      analysis: result,
+      message: `Analyzed using ${result.method} method`
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

@@ -46,7 +46,14 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (value === 'unorganized') {
                 loadImages({ organized: 'false' });
             } else if (value === 'people' || value === 'pets' || value === 'nature' || value === 'vehicles') {
-                loadImages({ category: value === 'people' ? 'person' : value.slice(0, -1) });
+                // Map filter values to category names
+                const categoryMap = {
+                    'people': 'person',
+                    'pets': 'pet',
+                    'nature': 'nature',  // nature stays as nature
+                    'vehicles': 'vehicle'
+                };
+                loadImages({ category: categoryMap[value] });
             } else {
                 loadImages();
             }
@@ -236,6 +243,9 @@ function displayImages(images) {
                 ` : ''}
                 ${image.personId ? `<p class="person-id">Person: ${image.personId}</p>` : ''}
                 <div class="image-actions">
+                    <button onclick="editImageTags('${image.filename}', '${tags.join(',')}')" class="btn-edit">
+                        ✏️ Edit Tags
+                    </button>
                     <button onclick="organizeImage('${image.filename}')" class="btn-organize" ${image.organized ? 'disabled' : ''}>
                         📁 Organize
                     </button>
@@ -309,6 +319,108 @@ async function organizeImage(filename) {
         }
     } catch (error) {
         showMessage('Organization failed: ' + error.message, 'error');
+    }
+}
+
+// Edit image tags - Opens modal with tag input
+function editImageTags(filename, currentTags) {
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.id = 'editTagsModal';
+    modal.innerHTML = `
+        <div class="modal-content edit-tags-modal">
+            <span class="close-btn" onclick="this.parentElement.parentElement.remove()">&times;</span>
+            <h3>✏️ Edit Tags</h3>
+            <p class="modal-subtitle">Update tags to re-classify this image into different collection(s)</p>
+            
+            <div class="form-group">
+                <label for="newTagsInput">Tags (comma-separated)</label>
+                <input type="text" id="newTagsInput" value="${currentTags}" 
+                       placeholder="e.g., pet, dog, golden retriever">
+            </div>
+            
+            <div class="tag-suggestions">
+                <p><strong>Quick tags:</strong></p>
+                <div class="suggestion-buttons">
+                    <button type="button" onclick="addTagSuggestion('person')" class="tag-btn">👤 Person</button>
+                    <button type="button" onclick="addTagSuggestion('family')" class="tag-btn">👨‍👩‍👧 Family</button>
+                    <button type="button" onclick="addTagSuggestion('pet')" class="tag-btn">🐾 Pet</button>
+                    <button type="button" onclick="addTagSuggestion('dog')" class="tag-btn">🐕 Dog</button>
+                    <button type="button" onclick="addTagSuggestion('cat')" class="tag-btn">🐈 Cat</button>
+                    <button type="button" onclick="addTagSuggestion('nature')" class="tag-btn">🌿 Nature</button>
+                    <button type="button" onclick="addTagSuggestion('landscape')" class="tag-btn">🏞️ Landscape</button>
+                    <button type="button" onclick="addTagSuggestion('beach')" class="tag-btn">🏖️ Beach</button>
+                    <button type="button" onclick="addTagSuggestion('vehicle')" class="tag-btn">🚗 Vehicle</button>
+                    <button type="button" onclick="addTagSuggestion('car')" class="tag-btn">🚙 Car</button>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button onclick="updateImageTags('${filename}')" class="btn btn-primary">
+                    🔄 Update & Re-classify
+                </button>
+                <button onclick="this.closest('.modal').remove()" class="btn btn-secondary">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    `;
+    
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+    
+    // Focus on input
+    document.getElementById('newTagsInput').focus();
+}
+
+// Add tag suggestion to input
+function addTagSuggestion(tag) {
+    const input = document.getElementById('newTagsInput');
+    if (input) {
+        const currentTags = input.value.split(',').map(t => t.trim()).filter(t => t);
+        if (!currentTags.includes(tag)) {
+            currentTags.push(tag);
+            input.value = currentTags.join(', ');
+        }
+    }
+}
+
+// Update image tags via API - TRIGGERS re-classification
+async function updateImageTags(filename) {
+    const input = document.getElementById('newTagsInput');
+    if (!input) return;
+    
+    const tags = input.value.split(',').map(t => t.trim()).filter(t => t);
+    
+    if (tags.length === 0) {
+        showMessage('Please enter at least one tag', 'error');
+        return;
+    }
+    
+    try {
+        showMessage('Updating tags and re-classifying...', 'info');
+        
+        const response = await fetch(`/api/images/${filename}/tags`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Close modal
+            const modal = document.getElementById('editTagsModal');
+            if (modal) modal.remove();
+            
+            showMessage(`✅ Tags updated! Moved to: ${result.newCollections.join(', ')}`, 'success');
+            loadImages();
+            loadStats();
+        } else {
+            showMessage(result.error || 'Update failed', 'error');
+        }
+    } catch (error) {
+        showMessage('Update failed: ' + error.message, 'error');
     }
 }
 

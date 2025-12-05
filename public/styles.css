@@ -987,3 +987,131 @@ textarea {
         flex-direction: column;
     }
 }
+
+/* Edit Tags Modal */
+.edit-tags-modal {
+    max-width: 500px;
+    text-align: left;
+}
+
+.edit-tags-modal h3 {
+    margin-bottom: 10px;
+    color: var(--primary-color);
+}
+
+.edit-tags-modal .modal-subtitle {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+.edit-tags-modal .form-group {
+    margin-bottom: 20px;
+}
+
+.edit-tags-modal .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.edit-tags-modal .form-group input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.edit-tags-modal .form-group input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.tag-suggestions {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-color);
+    border-radius: 8px;
+}
+
+.tag-suggestions p {
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.suggestion-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag-btn {
+    padding: 6px 12px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.tag-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.modal-actions .btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.modal-actions .btn-primary {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+}
+
+.modal-actions .btn-primary:hover {
+    background: var(--primary-dark);
+}
+
+.modal-actions .btn-secondary {
+    background: white;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.modal-actions .btn-secondary:hover {
+    background: var(--bg-color);
+}
+
+/* Edit button style */
+.btn-edit {
+    background: var(--warning-color);
+    color: #333;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.btn-edit:hover {
+    background: #e0a800;
+}
